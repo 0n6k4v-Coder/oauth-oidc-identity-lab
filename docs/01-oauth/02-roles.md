@@ -794,9 +794,9 @@ This is more useful than memorizing four definitions independently.
 A useful way to think about the architecture is:
 
 ```text
-            AUTHORIZATION BOUNDARY
-                   │
-                   ▼
+               AUTHORIZATION BOUNDARY
+                         │
+                         ▼
 Resource Owner ──► Authorization Server
                          │
                          │ Token
