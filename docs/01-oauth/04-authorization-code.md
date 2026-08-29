@@ -501,9 +501,9 @@ It must establish that the code is valid for the current redemption request.
 Conceptually:
 
 ```text
-Token Request
-      │
-      ▼
+        Token Request
+              │
+              ▼
 ┌─────────────────────────────┐
 │ Validate Authorization Code │
 │ Validate Client             │
