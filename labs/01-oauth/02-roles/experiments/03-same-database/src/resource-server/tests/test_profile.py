@@ -13,7 +13,7 @@ def test_health():
     assert response.json() == {"status": "ok"}
 
 
-def test_profile():
+def test_profile() -> None:
     response = client.get("/api/profile")
 
     assert response.status_code == 200

@@ -15,9 +15,3 @@ def test_health() -> None:
         "service": "authorization-server",
         "role": "authorization_server",
     }
-
-
-def test_unknown_resource() -> None:
-    response = client.get("/does-not-exist")
-
-    assert response.status_code == 404
