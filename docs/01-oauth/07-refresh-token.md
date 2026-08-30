@@ -1,8 +1,8 @@
-# Lecture 05 — OAuth 2.0 Authorization Code Exchange
+# Lecture 07 — OAuth 2.0 Refresh Token
 
 > **Learning Track:** OAuth 2.0 & OpenID Connect Identity Lab
-> **Level:** Foundation → Token Issuance
-> **Prerequisite:** Understanding of the Authorization Request and Authorization Code
+> **Level:** Foundation → Long-Lived Authorization & Token Lifecycle
+> **Prerequisite:** Understanding of Authorization Code, Token Exchange, and Access Token basics
 
 ---
 
@@ -10,1454 +10,2105 @@
 
 After completing this lecture, you should be able to:
 
-* Explain what happens when an Authorization Code is exchanged at the Token Endpoint.
-* Distinguish the Authorization Endpoint from the Token Endpoint.
-* Explain the purpose of `grant_type=authorization_code`.
-* Construct the conceptual Token Request for the Authorization Code Grant.
-* Explain how the Authorization Server validates an Authorization Code exchange.
-* Understand the relationship between the Client and the Authorization Code.
-* Understand when `redirect_uri` must be included in the Token Request.
-* Explain Client authentication at the Token Endpoint.
-* Explain how PKCE adds `code_verifier` to the exchange.
-* Understand why Authorization Codes must not be reused.
-* Identify important Token Endpoint failure conditions.
-* Explain why the Token Endpoint is a security-critical back-channel.
-* Apply the modern OAuth security requirements that affect Authorization Code exchange.
+* Explain what a Refresh Token is and why OAuth uses it.
+* Distinguish a Refresh Token from an Access Token.
+* Explain when a Client uses a Refresh Token.
+* Understand the Refresh Token Grant at the Token Endpoint.
+* Understand the relationship between a Refresh Token and the Client to which it was issued.
+* Explain why Refresh Tokens require stronger protection than short-lived Access Tokens.
+* Understand Refresh Token scope and resource restrictions.
+* Explain Refresh Token rotation.
+* Explain Refresh Token replay detection.
+* Explain sender-constrained Refresh Tokens.
+* Understand the security trade-offs between rotation and sender-constraining.
+* Explain Refresh Token expiration and inactivity-based expiration.
+* Understand Refresh Token revocation.
+* Recognize what happens when a Refresh Token is compromised.
+* Understand why browser-based Clients require special Refresh Token security considerations.
+* Apply the current OAuth Security Best Current Practice to Refresh Token handling.
 
 ---
 
-# 2. What This Lecture Means by "Token Exchange"
+# 2. Why Does OAuth Need Refresh Tokens?
 
-The term **Token Exchange** can refer to more than one OAuth-related concept.
+Access Tokens are commonly issued with a limited lifetime.
 
-In this learning track, it means:
-
-```text
-Authorization Code
-        ↓
-Token Request
-        ↓
-Token Endpoint
-        ↓
-Token Response
-```
-
-This is the Authorization Code Grant defined by RFC 6749.
-
-It should not be confused with:
+For example:
 
 ```text
-RFC 8693
-OAuth 2.0 Token Exchange
-```
-
-RFC 8693 defines a separate OAuth extension for exchanging one security token for another.
-
-This lecture does **not** cover that extension.
-
-The focus here is:
-
-```text
-Authorization Code
-        ↓
 Access Token
+    ↓
+Valid for a limited period
+    ↓
+Expires
 ```
 
-through the OAuth Token Endpoint.
+Suppose the user has authorized a Client for a long-running session.
 
----
+Without a Refresh Token, the Client may need to send the user through the authorization process again whenever the Access Token expires.
 
-# 3. Where This Stage Fits
+That creates unnecessary authorization interaction.
 
-The previous lecture introduced the Authorization Request.
-
-The overall flow now becomes:
+A Refresh Token provides another mechanism:
 
 ```text
-Resource Owner
-      │
-      ▼
-Authorization Request
-      │
-      ▼
-Authorization Server
-      │
-      │ Authorization Response
-      │
-      ▼
-Authorization Code
-      │
-      ▼
-Client
-      │
-      │ Token Request
-      ▼
+Access Token expires
+        ↓
+Client uses Refresh Token
+        ↓
 Token Endpoint
-      │
-      │ Validation
-      ▼
-Token Response
-      │
-      ▼
-Client
+        ↓
+New Access Token
 ```
 
-The Token Exchange stage therefore sits between:
+The important idea is:
 
 ```text
-Authorization
-```
-
-and:
-
-```text
-Using the resulting Access Token
-```
-
----
-
-# 4. Authorization Endpoint vs Token Endpoint
-
-These endpoints have different responsibilities.
-
-## Authorization Endpoint
-
-The Authorization Endpoint is used to initiate and process the authorization interaction.
-
-```text
-Client
-   ↓
-User Agent
-   ↓
-Authorization Endpoint
-```
-
-The result of the Authorization Code flow is an authorization response containing an Authorization Code.
-
----
-
-## Token Endpoint
-
-The Token Endpoint is used by the Client to obtain tokens.
-
-```text
-Client
-   ↓
-Token Endpoint
-   ↓
-Token Response
-```
-
-The Client presents the Authorization Code as an authorization grant.
-
-Therefore:
-
-```text
-Authorization Endpoint
+Refresh Token
     =
-Authorization interaction
-
-Token Endpoint
-    =
-Grant redemption and token issuance
+Credential used to obtain new Access Tokens
 ```
 
-RFC 6749 defines the Token Endpoint separately from the Authorization Endpoint and defines the Authorization Code Grant as using both stages. :contentReference[oaicite:1]{index=1}
+It is not normally presented directly to the Resource Server.
+
+RFC 6749 defines the Refresh Token as a credential used by the Client to obtain a new Access Token when the current Access Token becomes invalid or expires. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc6749.html))
 
 ---
 
-# 5. The Authorization Code Is an Authorization Grant
+# 3. Access Token vs Refresh Token
 
-RFC 6749 defines an authorization grant as a credential representing the Resource Owner's authorization that the Client uses to obtain an Access Token.
-
-One defined grant type is:
+These tokens serve different purposes.
 
 ```text
-authorization_code
+Access Token
+    ↓
+Access protected resources
+
+Refresh Token
+    ↓
+Obtain new Access Tokens
 ```
-
-The Authorization Code therefore represents:
-
-```text
-Authorization Grant
-```
-
-that the Client can redeem at the Token Endpoint.
 
 Conceptually:
 
 ```text
-Authorization Code
-        │
-        │ represents
-        ▼
-Resource Owner authorization
-        │
-        ▼
-Token Endpoint
+                 Authorization Server
+                        │
+                        │
+                 Token Response
+                        │
+               ┌────────┴────────┐
+               │                 │
+               ▼                 ▼
+         Access Token       Refresh Token
+               │                 │
+               │                 │
+               ▼                 ▼
+        Resource Server     Token Endpoint
 ```
 
-The Authorization Code is therefore not itself the Access Token.
+Therefore:
 
 ```text
-Authorization Code
+Access Token
     ≠
+Refresh Token
+```
+
+The Access Token is intended for the Resource Server.
+
+The Refresh Token is intended for the Authorization Server.
+
+---
+
+# 4. Why Not Use the Access Token Forever?
+
+A long-lived Access Token increases the impact of token leakage.
+
+Consider:
+
+```text
 Access Token
+    ↓
+Stolen by attacker
+    ↓
+Attacker can use it
+    ↓
+Until token expires or is otherwise invalidated
+```
+
+Shorter Access Token lifetimes reduce this exposure window.
+
+But short-lived Access Tokens create another problem:
+
+```text
+Access Token
+    ↓
+Expires frequently
+    ↓
+User must authorize again
+```
+
+Refresh Tokens provide a mechanism for maintaining authorization without repeatedly requiring the full authorization interaction.
+
+The security architecture therefore often becomes:
+
+```text
+Short-lived Access Token
+        +
+Longer-lived Refresh Token
+        ↓
+Usability + reduced Access Token exposure
+```
+
+RFC 6749 and RFC 9700 both treat Refresh Tokens as long-lived credentials requiring particular security protections. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc6749.html))
+
+---
+
+# 5. Where the Refresh Token Fits
+
+The complete lifecycle can be represented as:
+
+```text
+Authorization
+      ↓
+Authorization Code
+      ↓
+Token Exchange
+      ↓
+Access Token + Refresh Token
+      │             │
+      │             │
+      ▼             ▼
+Resource Server   Token Endpoint
+      │             │
+      │             │ Refresh
+      │             ▼
+      │        New Access Token
+      │
+      ▼
+Protected Resource
+```
+
+The Refresh Token therefore creates a second interaction with the Token Endpoint after the initial Authorization Code exchange.
+
+---
+
+# 6. Who Issues the Refresh Token?
+
+The Authorization Server decides whether to issue a Refresh Token.
+
+It is not automatically required to issue one.
+
+Conceptually:
+
+```text
+Client
+   │
+   │ Authorization Code
+   ▼
+Token Endpoint
+   │
+   ▼
+Authorization Server
+   │
+   ├── Access Token
+   │
+   └── Refresh Token
+```
+
+RFC 6749 allows Authorization Servers to issue Refresh Tokens.
+
+Current OAuth Security BCP goes further and says Authorization Servers must determine, based on risk assessment, whether issuing a Refresh Token to a particular Client is appropriate. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc9700.html))
+
+Therefore:
+
+```text
+Refresh Token
+    ≠
+Always issued
 ```
 
 ---
 
-# 6. Why Is There an Authorization Code?
+# 7. The Refresh Token Grant
 
-The Authorization Code creates a separation between authorization and token issuance.
-
-Instead of:
+Once the Client has a Refresh Token, it can request a new Access Token using the:
 
 ```text
-Authorization Response
-        ↓
-Access Token
+refresh_token
 ```
 
-the Authorization Code flow uses:
+grant type.
+
+The request is sent to the Token Endpoint.
+
+Conceptually:
+
+```http
+POST /token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&
+refresh_token=REFRESH_TOKEN
+```
+
+RFC 6749 defines:
 
 ```text
-Authorization Response
+grant_type=refresh_token
+```
+
+and requires:
+
+```text
+refresh_token
+```
+
+in the request.
+
+([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc6749.html))
+
+---
+
+# 8. Refresh Token Flow
+
+The basic flow is:
+
+```text
+Client
+   │
+   │ Refresh Token
+   ▼
+Token Endpoint
+   │
+   │ Validate
+   ▼
+Authorization Server
+   │
+   │ New Access Token
+   ▼
+Client
+```
+
+A more complete model is:
+
+```text
+Access Token expires
         ↓
-Authorization Code
+Client detects expiration
+        ↓
+Client sends Refresh Token
         ↓
 Token Endpoint
         ↓
-Access Token
+Authorization Server validates
+        ↓
+New Access Token
+        ↓
+Client
 ```
 
-This allows the Client to obtain the final token through a direct interaction with the Token Endpoint.
-
-The modern OAuth security baseline strongly favors this model over returning Access Tokens directly from the authorization response. RFC 9700 recommends against the historical Implicit Grant approach because tokens returned through the authorization response have additional exposure and replay risks. :contentReference[oaicite:2]{index=2}
+The Client does not send the Refresh Token to the Resource Server.
 
 ---
 
-# 7. The Token Request
+# 9. The Refresh Token Request
 
-For the Authorization Code Grant, the Client sends an HTTP POST request to the Token Endpoint.
-
-The request uses:
-
-```text
-application/x-www-form-urlencoded
-```
-
-as its request-body format.
-
-A simplified example is:
+A simplified request is:
 
 ```http
 POST /token HTTP/1.1
 Host: authorization.example.com
 Content-Type: application/x-www-form-urlencoded
 
-grant_type=authorization_code&
-code=AUTHORIZATION_CODE
+grant_type=refresh_token&
+refresh_token=REFRESH_TOKEN
 ```
 
-Depending on the Client and authorization transaction, additional parameters may be required.
+Depending on the Client type and authorization-server configuration, the request may additionally contain:
 
-RFC 6749 specifies the Token Request parameters and requires the request to use the `application/x-www-form-urlencoded` format. :contentReference[oaicite:3]{index=3}
+```text
+client_id
+client authentication
+scope
+resource
+DPoP proof
+```
+
+The exact parameters depend on the deployment and applicable specifications.
 
 ---
 
-# 8. `grant_type`
+# 10. Client Binding
 
-The parameter:
-
-```text
-grant_type=authorization_code
-```
-
-tells the Token Endpoint which grant type the Client is presenting.
-
-Conceptually:
-
-```text
-grant_type
-      ↓
-authorization_code
-      ↓
-"I am redeeming an Authorization Code."
-```
-
-This allows the Authorization Server to apply the validation rules associated with that grant.
-
-The Token Endpoint therefore does not simply receive:
-
-```text
-code=...
-```
-
-and issue a token.
-
-It first determines how the request must be processed.
-
----
-
-# 9. The `code` Parameter
-
-The:
-
-```text
-code
-```
-
-parameter contains the Authorization Code previously issued by the Authorization Server.
-
-Example:
-
-```text
-code=abc123
-```
-
-Conceptually:
-
-```text
-Authorization Response
-        │
-        │ code=abc123
-        ▼
-Client
-        │
-        │ code=abc123
-        ▼
-Token Endpoint
-```
-
-The Authorization Server must determine whether this code is valid for the requesting Client and current transaction.
-
-A Client must treat the code as a sensitive, short-lived credential.
-
----
-
-# 10. What Does the Authorization Server Validate?
-
-A successful exchange is not based on:
-
-```text
-code exists
-      ↓
-issue token
-```
-
-Instead:
-
-```text
-Token Request
-      ↓
-Validate
-      │
-      ├── Grant
-      ├── Client
-      ├── Redirect URI
-      ├── PKCE
-      ├── Client authentication
-      └── Other grant conditions
-      │
-      ├── Valid
-      │
-      └── Invalid
-```
-
-Only after the applicable validation succeeds should the Authorization Server issue tokens.
-
-RFC 6749 defines the basic authorization-code request validation requirements, while RFC 9700 adds current security requirements and attack mitigations that apply to modern deployments. :contentReference[oaicite:4]{index=4}
-
----
-
-# 11. Client Binding
-
-An Authorization Code is issued to a specific Client.
+A Refresh Token is associated with the Client to which it was issued.
 
 Conceptually:
 
 ```text
 Client A
-   │
-   │ Authorization
-   ▼
-Authorization Server
-   │
-   │ Code A
-   ▼
-Client A
+    │
+    │
+    ▼
+Refresh Token A
 ```
 
-The server must not allow:
+This does not mean:
 
 ```text
 Client B
-   │
-   │ Code A
-   ▼
-Token Endpoint
+    │
+    │ Refresh Token A
+    ▼
+Authorization Server
+    ↓
+Accept
 ```
 
-to redeem the code as though it had been issued to Client B.
+The Authorization Server must maintain the binding between the Refresh Token and the Client.
 
-This binding is part of the security model of the Authorization Code Grant.
+RFC 6749 requires the Authorization Server to maintain this binding and verify it whenever the Client identity can be authenticated. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc6749.html))
 
 ---
 
-# 12. Client Authentication
+# 11. Confidential Clients
 
-The Token Endpoint may require Client authentication.
-
-For example, a confidential Client may authenticate using a registered mechanism.
+For a confidential Client, the Authorization Server can authenticate the Client when the Refresh Token is presented.
 
 Conceptually:
 
 ```text
 Client
    │
-   │ Identity / authentication
+   ├── Refresh Token
+   │
+   └── Client Authentication
+   │
    ▼
 Token Endpoint
 ```
 
-The purpose is to establish:
+The server can then establish:
 
 ```text
-Which Client is making this Token Request?
-```
-
-This is different from the Authorization Code itself.
-
-The server may therefore validate:
-
-```text
-Client identity
+This Refresh Token
         +
-Authorization Code
+This authenticated Client
         ↓
-Does this Client have the right
-to redeem this code?
+Expected binding
 ```
 
-RFC 6749 requires confidential Clients to authenticate with the Authorization Server when accessing the Token Endpoint, while public Clients cannot rely on a static secret as a secure authentication factor. :contentReference[oaicite:5]{index=5}
+RFC 6749 requires confidential Clients to authenticate when using the Token Endpoint, including when using a Refresh Token. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc6749.html))
 
 ---
 
-# 13. Public Client vs Confidential Client
+# 12. Public Clients
 
-The Client type changes the security model.
+A public Client cannot safely rely on a static Client Secret.
 
-## Confidential Client
-
-A confidential Client can protect credentials such as a client authentication secret.
-
-Conceptually:
+For example:
 
 ```text
-Confidential Client
-        │
-        │ Client Authentication
-        ▼
-Token Endpoint
-```
-
----
-
-## Public Client
-
-A public Client cannot reliably keep a static credential confidential.
-
-Examples include:
-
-```text
-Browser-based applications
-Native applications
+Browser Application
+    ↓
+Client Secret
+    ↓
+JavaScript bundle
+    ↓
+User can inspect it
 ```
 
 Therefore:
 
 ```text
-Client Secret inside browser code
-        ≠
-Secure confidential credential
+client_secret
+    ≠
+Reliable protection for a browser Client
 ```
 
-Modern OAuth security therefore relies heavily on PKCE for public Clients.
+This is important because Refresh Tokens can be long-lived and therefore have a larger security impact than many short-lived credentials.
 
-RFC 9700 requires public Clients to use PKCE and requires Authorization Servers to support PKCE. :contentReference[oaicite:6]{index=6}
+Current OAuth Security BCP requires public clients that receive Refresh Tokens to use either:
+
+```text
+Sender-Constrained Refresh Tokens
+```
+
+or:
+
+```text
+Refresh Token Rotation
+```
+
+to detect replay. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc9700.html))
 
 ---
 
-# 14. `redirect_uri` During Token Exchange
+# 13. Refresh Token Scope
 
-`redirect_uri` can participate in the Token Request.
+A Refresh Token should not silently create broader authorization than the original authorization grant.
 
-If the Client included a `redirect_uri` in the original Authorization Request, RFC 6749 requires the Client to include it in the Token Request and requires the value to be identical.
+RFC 9700 requires issued Refresh Tokens to be bound to the scope and resource servers consented to by the Resource Owner.
 
 Conceptually:
 
 ```text
-Authorization Request
-
-redirect_uri = A
-
-        ↓
-
-Authorization Code
-
-        ↓
-
-Token Request
-
-redirect_uri = A
+Original Authorization
+        │
+        ├── Scope
+        └── Resource Servers
+        │
+        ▼
+Refresh Token
 ```
 
-The server verifies:
+The Refresh Token should remain within that authorization boundary.
+
+Therefore:
 
 ```text
-Authorization Request redirect_uri
-            =
-Token Request redirect_uri
+Refresh Token
+    ≠
+Unlimited permission to request anything
 ```
 
-If the values do not match:
+This protects against privilege escalation and reduces the impact of Refresh Token leakage.
 
-```text
-Reject
-```
-
-RFC 6749 defines this relationship explicitly. Current OAuth Security BCP also emphasizes strict redirect URI validation as an important security control. :contentReference[oaicite:7]{index=7}
+([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc9700.html))
 
 ---
 
-# 15. Why Redirect URI Validation Matters Here
+# 14. Can the Client Increase Scope During Refresh?
 
-The Authorization Code was produced as part of a particular authorization transaction.
+RFC 6749 allows the Client to request a scope during Refresh Token use.
 
-If the Client could redeem that code using arbitrary redirect information, the relationship between:
-
-```text
-Authorization Request
-```
-
-and:
+However:
 
 ```text
-Token Request
+Requested Scope
+    ⊆
+Originally Granted Scope
 ```
 
-would become weaker.
+A Client cannot use a Refresh Token to request arbitrary additional permissions that were never granted.
 
 Conceptually:
 
 ```text
-Original Transaction
-        │
-        ├── Client
-        ├── Redirect URI
-        └── Authorization Code
-              │
-              ▼
-        Token Request
-              │
-              ├── Same Client
-              └── Same Redirect Context
+Originally Granted:
+read profile
+read calendar
+
+Refresh Request:
+read profile
 ```
 
-This is part of the transaction-binding model.
+Valid.
 
-RFC 9700 specifically highlights weaknesses caused by insufficient redirect URI validation and notes that incorrect or incomplete validation can enable attacks involving authorization codes. :contentReference[oaicite:8]{index=8}
+But:
+
+```text
+Originally Granted:
+read profile
+
+Refresh Request:
+read profile
+write payments
+```
+
+cannot be accepted merely because the Client possesses the Refresh Token.
+
+RFC 6749 requires the requested scope to not include privileges beyond the scope originally granted. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc6749.html))
 
 ---
 
-# 16. PKCE Adds a Second Binding
+# 15. Why Refresh Tokens Are High-Value Credentials
 
-PKCE adds another relationship between the authorization request and the token request.
-
-The Client creates:
+A short-lived Access Token may provide access for:
 
 ```text
-code_verifier
+10 minutes
 ```
 
-and derives:
+while a Refresh Token may remain useful for substantially longer.
+
+Therefore:
 
 ```text
-code_challenge
+Refresh Token
+      ↓
+Can repeatedly obtain
+new Access Tokens
+      ↓
+Potentially extended compromise
 ```
 
-The Client sends the challenge during authorization:
+This makes Refresh Token theft particularly serious.
+
+RFC 10017 explicitly notes that for browser-based applications, leaked Refresh Tokens can allow an attacker to continue obtaining new Access Tokens, potentially without detection. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc10017.html))
+
+---
+
+# 16. Refresh Token Rotation
+
+One major defense is:
 
 ```text
-Authorization Request
-        │
-        └── code_challenge
+Refresh Token Rotation
 ```
 
-Later:
+Instead of allowing one Refresh Token to remain reusable indefinitely:
 
 ```text
-Token Request
-        │
-        └── code_verifier
+RT₁
+ ↓
+Refresh
+ ↓
+AT₁ + RT₂
 ```
 
-The Authorization Server recomputes the challenge from the verifier and compares it with the challenge bound to the Authorization Code.
-
-Conceptually:
+The old token:
 
 ```text
-code_verifier
-      │
-      │ transformation
-      ▼
-code_challenge
-      │
-      │ bound to
-      ▼
-Authorization Code
-      │
-      │ later
-      ▼
-code_verifier
-      │
-      │ verification
-      ▼
+RT₁
+```
+
+is invalidated.
+
+The Client receives:
+
+```text
+RT₂
+```
+
+for the next refresh.
+
+Then:
+
+```text
+RT₂
+ ↓
+Refresh
+ ↓
+AT₂ + RT₃
+```
+
+This creates a chain:
+
+```text
+RT₁ → RT₂ → RT₃ → RT₄
+```
+
+---
+
+# 17. Why Rotation Helps
+
+Suppose an attacker steals:
+
+```text
+RT₁
+```
+
+The legitimate Client later uses:
+
+```text
+RT₁
+```
+
+and receives:
+
+```text
+RT₂
+```
+
+with:
+
+```text
+RT₁
+```
+
+invalidated.
+
+Now the attacker attempts:
+
+```text
+RT₁
+   ↓
 Token Endpoint
 ```
 
-RFC 7636 defines this relationship. :contentReference[oaicite:9]{index=9}
+The server sees:
+
+```text
+RT₁ already invalidated
+```
+
+This indicates possible replay.
+
+Conceptually:
+
+```text
+RT₁
+ │
+ ├── Legitimate Client → RT₂
+ │
+ └── Attacker → RT₁ again
+                  ↓
+              Replay detected
+```
+
+RFC 9700 describes this as a mechanism for detecting Refresh Token replay for public Clients. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc9700.html))
 
 ---
 
-# 17. Why PKCE Protects a Stolen Authorization Code
+# 18. Refresh Token Family
 
-Suppose an attacker obtains:
+A rotation implementation normally retains information about the relationship between successive Refresh Tokens.
 
-```text
-Authorization Code
-```
-
-but does not obtain:
+Conceptually:
 
 ```text
-code_verifier
+Grant
+ │
+ └── Refresh Token Family
+       │
+       ├── RT₁
+       ├── RT₂
+       ├── RT₃
+       └── RT₄
 ```
 
-The attacker attempts:
+This allows the Authorization Server to recognize that a previously invalidated Refresh Token is being presented again.
+
+The exact internal data model is implementation-specific.
+
+The important security property is:
 
 ```text
-Attacker
-   │
-   │ code
-   ▼
-Token Endpoint
+Rotation
+    +
+Replay Detection
 ```
-
-The Token Endpoint requires the verifier associated with the original authorization request.
-
-Without it:
-
-```text
-PKCE verification
-      ↓
-Failure
-      ↓
-No token
-```
-
-This is one of the primary protections PKCE provides.
-
-RFC 9700 explicitly identifies PKCE as a countermeasure against authorization-code interception and authorization-code injection attacks. :contentReference[oaicite:10]{index=10}
 
 ---
 
-# 18. Why `S256` Matters
+# 19. What Happens After Replay Detection?
 
-PKCE supports challenge methods.
-
-For modern deployments, the Client should use:
-
-```text
-code_challenge_method=S256
-```
-
-The conceptual relationship is:
-
-```text
-code_verifier
-      │
-      │ SHA-256
-      ▼
-code_challenge
-```
-
-The important security property is that the verifier is not exposed directly in the authorization request.
-
-RFC 9700 states that Clients should use PKCE methods that do not expose the verifier in the authorization request and identifies `S256` as currently the only such method. :contentReference[oaicite:11]{index=11}
-
----
-
-# 19. PKCE Downgrade
-
-PKCE introduces another possible attack if the Authorization Server allows the Client or attacker to turn PKCE off.
+A Refresh Token reuse event is security-sensitive.
 
 For example:
 
 ```text
-Normal Request
+RT₁
+ ↓
+Used legitimately
+ ↓
+RT₁ invalidated
+ ↓
+RT₁ used again
+ ↓
+Possible compromise
+```
+
+The Authorization Server can treat this as evidence that the token family may have been compromised.
+
+Depending on implementation policy, the server may invalidate related tokens or the underlying authorization grant.
+
+RFC 9700 specifies replay detection requirements, while the precise containment policy depends on the authorization-server implementation and deployment risk model. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc9700.html))
+
+---
+
+# 20. Sender-Constrained Refresh Tokens
+
+Another replay defense is sender-constraining.
+
+The idea is:
+
+```text
+Refresh Token
+      +
+Proof of key possession
       ↓
-code_challenge present
+Valid refresh request
+```
+
+The Refresh Token is cryptographically bound to a Client instance or key.
+
+A stolen token alone is therefore insufficient.
+
+Conceptually:
+
+```text
+Refresh Token
+      +
+Private Key
       ↓
-PKCE enforced
+Client
+      ↓
+Token Endpoint
+```
+
+An attacker who obtains only:
+
+```text
+Refresh Token
+```
+
+cannot satisfy the sender-constraint requirement.
+
+RFC 9700 identifies sender-constrained Refresh Tokens as one of the two required replay-detection approaches for public Clients receiving Refresh Tokens. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc9700.html))
+
+---
+
+# 21. DPoP as a Sender-Constraint Mechanism
+
+RFC 9449 defines:
+
+```text
+OAuth 2.0 Demonstrating Proof of Possession
+```
+
+or:
+
+```text
+DPoP
+```
+
+DPoP uses a public/private key pair.
+
+Conceptually:
+
+```text
+Client
+   │
+   ├── Private Key
+   │
+   └── Public Key
+```
+
+The Authorization Server can bind a Refresh Token for a public Client to the public key.
+
+When the Refresh Token is later used:
+
+```text
+Refresh Token
+      +
+DPoP Proof
+      ↓
+Token Endpoint
+```
+
+The server verifies that the proof demonstrates possession of the same key.
+
+RFC 9449 explicitly defines sender-constraining Refresh Tokens issued to public Clients using DPoP. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc9449.html))
+
+---
+
+# 22. Sender Constraint Does Not Mean "Impossible to Steal"
+
+Sender-constraining changes the attack requirement.
+
+Without sender constraint:
+
+```text
+Steal Refresh Token
+        ↓
+Potentially replay
+```
+
+With sender constraint:
+
+```text
+Steal Refresh Token
+        ↓
+Need associated key
+        ↓
+Without key
+        ↓
+Replay blocked
+```
+
+However:
+
+```text
+Refresh Token
+      +
+Associated Key
+      ↓
+Protection can be defeated
+```
+
+RFC 9700 explicitly notes that the security of sender-constrained tokens is undermined if an attacker obtains both the token and its key material, especially when client software is compromised or exposed to XSS. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc9700.html))
+
+Therefore:
+
+```text
+Sender Constraint
+    =
+Replay resistance
+    ≠
+Absolute security
+```
+
+---
+
+# 23. Rotation vs Sender Constraint
+
+The two mechanisms address replay differently.
+
+## Rotation
+
+```text
+RT₁
+ ↓
+RT₂
+ ↓
+RT₃
+```
+
+The old token becomes invalid.
+
+The Authorization Server can detect reuse.
+
+---
+
+## Sender Constraint
+
+```text
+RT₁
+ +
+Key
+ ↓
+Valid request
+```
+
+The token is usable only with proof of possession of the associated key.
+
+---
+
+## Comparison
+
+| Property | Rotation | Sender Constraint |
+|---|---|---|
+| Protects against token-only theft | Yes, through replay detection | Yes |
+| Requires key management | No | Yes |
+| Detects reuse of an old token | Yes | Not necessarily |
+| Requires proof of possession | No | Yes |
+| Works with public Clients | Yes | Yes |
+| Can be defeated if token + key are compromised | Not in the same way | Yes |
+| Operational complexity | Token family state | Cryptographic key lifecycle |
+
+RFC 9700 defines both as valid replay-detection mechanisms for public Clients. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc9700.html))
+
+---
+
+# 24. Can Both Be Used?
+
+Yes.
+
+Rotation and sender-constraining are not conceptually mutually exclusive.
+
+A deployment can use:
+
+```text
+Refresh Token Rotation
+        +
+Sender-Constrained Refresh Token
+```
+
+to create defense in depth.
+
+For example:
+
+```text
+RT₁ + Key
+   ↓
+Refresh
+   ↓
+RT₂ + Key
+   ↓
+RT₁ invalidated
+```
+
+An attacker who steals only:
+
+```text
+RT₁
+```
+
+cannot satisfy the sender constraint.
+
+An attacker who somehow possesses:
+
+```text
+RT₁ + Key
+```
+
+may still be detected if the old rotated token is subsequently replayed.
+
+Whether both are appropriate depends on the security architecture and implementation capabilities.
+
+RFC 9700 requires one of these mechanisms for public Clients receiving Refresh Tokens; using both can provide additional defense, but it is not a replacement for protecting the Client and its key material. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc9700.html))
+
+---
+
+# 25. Refresh Token Lifetime
+
+A Refresh Token should not necessarily live forever.
+
+Current OAuth security guidance requires Authorization Servers to consider Refresh Token expiration.
+
+For browser-based applications, RFC 10017 goes further and requires Authorization Servers to either:
+
+```text
+Set a maximum Refresh Token lifetime
+```
+
+or:
+
+```text
+Expire the Refresh Token after a period of inactivity
+```
+
+This limits the amount of time a stolen Refresh Token can remain useful.
+
+([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc10017.html))
+
+---
+
+# 26. Why Lifetime Matters
+
+Suppose:
+
+```text
+Refresh Token lifetime = 30 days
+```
+
+and an attacker steals it.
+
+The attacker may potentially continue obtaining new Access Tokens throughout that period unless another protection detects or blocks the misuse.
+
+Therefore:
+
+```text
+Long lifetime
+    ↓
+Large compromise window
+```
+
+while:
+
+```text
+Limited lifetime
+    ↓
+Smaller compromise window
+```
+
+Refresh Token lifetime should therefore be determined according to the application's security risk rather than convenience alone.
+
+---
+
+# 27. Inactivity Expiration
+
+An alternative to a fixed absolute lifetime is expiration based on inactivity.
+
+Conceptually:
+
+```text
+Refresh Token
+      ↓
+Used regularly
+      ↓
+Remains active
 ```
 
 but:
 
 ```text
-Modified Request
+Refresh Token
       ↓
-code_challenge removed
+Unused for configured period
       ↓
-Server silently allows request
-      ↓
-Code created without PKCE binding
+Expires
 ```
 
-An attacker may then attempt to redeem the code without possessing the verifier.
+This can support long-running active sessions while limiting abandoned credentials.
 
-This is called a:
-
-```text
-PKCE Downgrade Attack
-```
-
-RFC 9700 requires Authorization Servers to avoid this downgrade condition and requires PKCE support. It also recommends that Clients determine whether the Authorization Server supports PKCE before relying on it for CSRF protection. :contentReference[oaicite:12]{index=12}
+Current browser-based OAuth guidance explicitly allows this form of expiration. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc10017.html))
 
 ---
 
-# 20. Authorization Code Injection
+# 28. Rotation and Overall Lifetime
 
-A different attack is authorization-code injection.
+There is an important subtlety with rotation.
+
+Suppose:
+
+```text
+Initial Refresh Token
+lifetime = 8 hours
+```
+
+and the Client repeatedly refreshes:
+
+```text
+RT₁ → RT₂ → RT₃ → RT₄
+```
+
+The server should not blindly turn rotation into an unlimited lifetime.
+
+For browser-based applications, RFC 10017 requires that when an initial Refresh Token has a pre-established expiration time, rotated Refresh Tokens must not extend the lifetime beyond the initial token's lifetime.
 
 Conceptually:
 
 ```text
-Attacker
-   │
-   │ obtains Code A
-   ▼
-Attacker starts authorization with Client
-   │
-   │ replaces returned code
-   ▼
-Client
-   │
-   │ submits injected Code A
-   ▼
-Token Endpoint
+Initial lifetime
+│
+├── RT₁
+├──── RT₂
+├────── RT₃
+└──────── RT₄
+       │
+       ▼
+Initial expiration boundary
 ```
 
-The attacker attempts to make the victim's Client session become associated with the attacker's stolen code.
-
-RFC 9700 identifies this explicitly as an authorization-code injection attack.
-
-PKCE can detect this because:
-
-```text
-Injected Code
-      │
-      │ bound to different challenge
-      ▼
-Client's code_verifier
-      │
-      ▼
-PKCE mismatch
-      ↓
-Reject
-```
-
-This is one of the reasons PKCE is valuable beyond simple code interception. :contentReference[oaicite:13]{index=13}
+This prevents a stolen Refresh Token from remaining continuously renewable forever through rotation. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc10017.html))
 
 ---
 
-# 21. Authorization Code Replay
+# 29. Refresh Token Revocation
 
-Authorization Codes must not become reusable credentials.
+A Refresh Token may also be explicitly revoked.
+
+OAuth defines a dedicated Token Revocation specification:
+
+```text
+RFC 7009
+OAuth 2.0 Token Revocation
+```
+
+A Client can send:
+
+```http
+POST /revoke
+Content-Type: application/x-www-form-urlencoded
+
+token=REFRESH_TOKEN&
+token_type_hint=refresh_token
+```
+
+The Authorization Server invalidates the token.
+
+RFC 7009 defines Refresh Token revocation and permits authorization-server policies that also invalidate related tokens or the underlying authorization grant. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc7009.html))
+
+---
+
+# 30. When Should Refresh Tokens Be Revoked?
+
+Possible scenarios include:
+
+```text
+User logs out
+Application is uninstalled
+Authorization is withdrawn
+Security incident
+Detected token replay
+Account compromise
+Client compromise
+Administrative revocation
+```
+
+Conceptually:
+
+```text
+Security Event
+      ↓
+Authorization Server
+      ↓
+Revoke Refresh Token
+      ↓
+Future refresh request
+      ↓
+Rejected
+```
+
+Revocation is therefore an important containment mechanism.
+
+---
+
+# 31. Refresh Token Revocation vs Expiration
+
+These are different mechanisms.
+
+### Expiration
+
+```text
+Time / inactivity
+      ↓
+Token becomes invalid
+```
+
+### Revocation
+
+```text
+Security / administrative event
+      ↓
+Server explicitly invalidates token
+```
+
+Therefore:
+
+```text
+Expiration
+    =
+Automatic lifecycle boundary
+
+Revocation
+    =
+Explicit invalidation
+```
+
+A robust deployment may use both.
+
+---
+
+# 32. Refresh Token Theft
 
 Consider:
 
 ```text
-Code A
-   │
-   ├── First redemption → Success
-   │
-   └── Second redemption → Reject
-```
-
-RFC 6749 states that if an Authorization Code is used more than once, the Authorization Server must deny the request and should revoke previously issued tokens associated with the code when possible. :contentReference[oaicite:14]{index=14}
-
-This makes code reuse detection part of the Token Endpoint's security responsibilities.
-
----
-
-# 22. Short-Lived Authorization Code
-
-Authorization Codes should be short-lived.
-
-The reason is straightforward:
-
-```text
-Long-lived Code
-      ↓
-Larger attack window
-
-Short-lived Code
-      ↓
-Smaller attack window
-```
-
-Even with PKCE and other controls, the Authorization Code should not be treated as a long-lived credential.
-
-The practical model is:
-
-```text
-Authorization Code
-    =
-Temporary transaction credential
-```
-
-not:
-
-```text
-Authorization Code
-    =
-Persistent authentication credential
-```
-
----
-
-# 23. The Token Endpoint Is a Back-Channel
-
-The authorization interaction occurs through a user agent.
-
-The token exchange is performed directly by the Client against the Token Endpoint.
-
-Conceptually:
-
-```text
-Front Channel
-
 Client
-   ↓
+   │
+   └── Refresh Token
+          ↓
+       Stolen
+          ↓
+       Attacker
+```
+
+The correct security response depends on the protection model.
+
+### With rotation
+
+```text
+Attacker uses old token
+        ↓
+Replay detection
+```
+
+### With sender constraint
+
+```text
+Attacker has token
+        ↓
+No valid key proof
+        ↓
+Reject
+```
+
+### With both
+
+```text
+Token
+ +
+Key
+ +
+Rotation
+        ↓
+Multiple security barriers
+```
+
+However, if the attacker compromises the Client environment itself, the security problem becomes substantially larger.
+
+---
+
+# 33. Compromised Client
+
+Suppose an attacker controls the Client execution environment.
+
+They may obtain:
+
+```text
+Refresh Token
+Private Key
+Application State
+```
+
+At that point:
+
+```text
+Sender Constraint
+    ↓
+May no longer be sufficient
+```
+
+and:
+
+```text
+Rotation
+    ↓
+May detect replay
+    but cannot prevent
+    an already-compromised
+    Client from acting legitimately
+```
+
+This is a critical distinction:
+
+```text
+Token theft
+    ≠
+Client compromise
+```
+
+Token protections reduce the impact of stolen credentials.
+
+They do not guarantee safety after complete compromise of the Client environment.
+
+---
+
+# 34. Browser-Based Applications
+
+Browser-based applications require special consideration.
+
+A typical browser architecture is:
+
+```text
 Browser
+   ↓
+JavaScript Application
    ↓
 Authorization Server
 ```
 
-followed by:
+The browser environment may be exposed to:
 
 ```text
-Back Channel
-
-Client
-   ↓
-HTTPS
-   ↓
-Token Endpoint
+XSS
+Malicious extensions
+Compromised dependencies
+Browser storage attacks
+Malicious JavaScript
 ```
 
-This direct Client-to-Server interaction is important because the Token Request can contain sensitive values such as:
+RFC 10017 therefore provides dedicated current guidance for browser-based OAuth applications.
 
-```text
-Authorization Code
-code_verifier
-Client authentication credentials
-```
-
-RFC 6749 requires the Token Endpoint to use TLS and requires the token request to use HTTP POST. :contentReference[oaicite:15]{index=15}
+If Refresh Tokens are issued to browser-based applications, the application and Authorization Server must follow the Refresh Token requirements in RFC 9700. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc10017.html))
 
 ---
 
-# 24. Token Request Errors
+# 35. Browser Refresh Token Risk
 
-A Token Endpoint should reject invalid requests rather than issuing tokens.
-
-Common OAuth error values include:
-
-```text
-invalid_request
-invalid_client
-invalid_grant
-unauthorized_client
-unsupported_grant_type
-```
-
-For Authorization Code exchange, relevant failure conditions can include:
-
-```text
-Invalid code
-Expired code
-Already-used code
-Wrong Client
-Redirect URI mismatch
-Client authentication failure
-PKCE verification failure
-```
-
-The fundamental rule is:
-
-```text
-Validation Failure
-        ↓
-No successful token issuance
-```
-
-RFC 6749 defines the standard Token Endpoint error response model. :contentReference[oaicite:16]{index=16}
-
----
-
-# 25. What `invalid_grant` Means Here
-
-For an Authorization Code exchange, several authorization-grant problems can lead to:
-
-```text
-invalid_grant
-```
-
-For example:
-
-```text
-Authorization Code invalid
-Authorization Code expired
-Authorization Code already used
-Authorization Code issued to another Client
-Redirect URI does not match
-```
-
-The exact error behavior must follow the applicable OAuth specification and authorization-server implementation.
-
-The important mental model is:
-
-```text
-The grant is invalid
-        ↓
-The Token Endpoint must not turn it into a valid token
-```
-
----
-
-# 26. Successful Token Response
-
-If the request passes all required validation, the Authorization Server returns a Token Response.
-
-A conceptual response is:
-
-```json
-{
-  "access_token": "ACCESS_TOKEN",
-  "token_type": "Bearer",
-  "expires_in": 3600
-}
-```
-
-Depending on the authorization server and applicable flow, additional fields may be returned.
-
-The important sequence is:
-
-```text
-Authorization Code
-        ↓
-Token Request
-        ↓
-Validation
-        ↓
-Token Response
-```
-
-The semantics and validation of the resulting Access Token belong to the next part of the learning track.
-
----
-
-# 27. What the Token Endpoint Does Not Do
-
-The Token Endpoint does not answer:
-
-```text
-"May this token access this API?"
-```
-
-That is a later Resource Server decision.
-
-The Token Endpoint answers a different question:
-
-```text
-"Is this token request valid,
-and may this Client receive tokens
-for this authorization grant?"
-```
+RFC 10017 explicitly highlights that Refresh Tokens in browser-based applications are often bearer credentials unless DPoP is used.
 
 Therefore:
 
 ```text
-Token Endpoint
-    =
-Grant validation + token issuance
-
-Resource Server
-    =
-Protected resource authorization
+Browser
+   ↓
+Refresh Token
+   ↓
+Token leakage
+   ↓
+Attacker may obtain new Access Tokens
 ```
 
-Keeping these responsibilities separate is essential.
+This can be more damaging than a single leaked Access Token because the attacker may repeatedly obtain new tokens.
+
+That is why browser-based applications require deliberate Refresh Token lifecycle and replay protection. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc10017.html))
 
 ---
 
-# 28. Token Exchange Security as Defense in Depth
+# 36. Refresh Token Storage
 
-The modern exchange can be viewed as multiple controls:
+A Refresh Token must be treated as highly sensitive.
+
+At minimum:
 
 ```text
-Authorization Code
-        │
-        ├── Client binding
-        │
-        ├── Redirect URI binding
-        │
-        ├── PKCE
-        │
-        ├── Client authentication
-        │
-        ├── Code lifetime
-        │
-        ├── Single-use enforcement
-        │
-        └── TLS
-        │
-        ▼
-Token Endpoint
-        │
-        ▼
-Validation
-        │
-   ┌────┴─────┐
-   │          │
- Valid      Invalid
-   │          │
-   ▼          ▼
-Tokens       Error
+Do not log it.
+Do not expose it unnecessarily.
+Do not send it to the Resource Server.
+Protect it in transit.
+Protect it in storage.
 ```
 
-No single control is expected to solve every attack.
+For browser applications, token storage architecture becomes particularly important because JavaScript-accessible storage can be exposed if the application's execution environment is compromised.
 
-Instead:
+The appropriate architecture depends on the browser application's design, including whether a Backend for Frontend or another server-side token-handling architecture is used.
+
+RFC 10017 discusses these architectural choices and their security trade-offs. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc10017.html))
+
+---
+
+# 37. Refresh Token Error Handling
+
+A Refresh Token request can fail.
+
+Examples include:
 
 ```text
-Multiple Controls
+invalid_grant
+invalid_client
+invalid_request
+unauthorized_client
+```
+
+A common condition is:
+
+```text
+invalid_grant
+```
+
+when the Refresh Token is:
+
+```text
+Invalid
+Expired
+Revoked
+Not valid for this Client
+```
+
+The Client must not interpret a failed Refresh Token request as authorization success.
+
+---
+
+# 38. What Happens When Refresh Fails?
+
+Suppose:
+
+```text
+Access Token
+    ↓
+Expired
+```
+
+The Client attempts:
+
+```text
+Refresh Token
+    ↓
+Token Endpoint
+    ↓
+invalid_grant
+```
+
+The Client may need to:
+
+```text
+Discard invalid credentials
+        ↓
+Require a new authorization flow
+```
+
+The exact user experience depends on the application.
+
+The important protocol principle is:
+
+```text
+Refresh failure
+    =
+Do not continue pretending
+the authorization is valid
+```
+
+---
+
+# 39. Refresh Token Lifecycle
+
+A complete lifecycle can be represented as:
+
+```text
+Authorization
+      ↓
+Initial Token Response
+      │
+      ├── Access Token
+      └── Refresh Token
+                 │
+                 ▼
+          Store securely
+                 │
+                 ▼
+       Access Token expires
+                 │
+                 ▼
+       Refresh Token Request
+                 │
+                 ▼
+         Token Endpoint
+                 │
+          ┌──────┴──────┐
+          │             │
+       Valid          Invalid
+          │             │
+          ▼             ▼
+    New Tokens        Error
+          │
+          ▼
+   Rotate / Continue
+          │
+          ▼
+   Refresh Token lifecycle
+          │
+     ┌────┴────┐
+     │         │
+ Expiration  Revocation
+     │         │
+     └────┬────┘
+          ▼
+       Invalid
+```
+
+---
+
+# 40. Security Mental Model
+
+A useful Refresh Token model is:
+
+```text
+             Refresh Token
+
+                    │
+       ┌────────────┼────────────┐
+       │            │            │
+       ▼            ▼            ▼
+    Client       Lifetime     Scope /
+    Binding                    Resource
+       │            │            │
+       └────────────┼────────────┘
+                    │
+                    ▼
+             Replay Protection
+                    │
+             ┌──────┴──────┐
+             │             │
+          Rotation    Sender Constraint
+             │             │
+             └──────┬──────┘
+                    ▼
+               Revocation
+                    │
+                    ▼
+              Secure Lifecycle
+```
+
+No single control is sufficient for every threat.
+
+---
+
+# 41. Modern Refresh Token Security Baseline
+
+For a modern implementation, the conceptual baseline is:
+
+```text
+Risk Assessment
        ↓
-Defense in Depth
+Should a Refresh Token be issued?
+       ↓
+If issued:
+       │
+       ├── Bind to Client
+       ├── Bind to authorized scope
+       ├── Bind to authorized resources
+       ├── Protect in transit
+       ├── Protect in storage
+       ├── Limit lifetime / inactivity
+       └── Protect against replay
+                  │
+             Public Client
+                  │
+          ┌───────┴────────┐
+          │                │
+       Rotation     Sender Constraint
 ```
 
-This reflects the security model in RFC 9700. :contentReference[oaicite:17]{index=17}
+For public Clients, RFC 9700 requires one of the two replay-detection approaches above. ([rfc-editor.org](https://www.rfc-editor.org/rfc/rfc9700.html))
 
 ---
 
-# 29. Authorization Code Exchange — Complete Mental Model
+# 42. What the Client Must Never Assume
 
-The entire process can now be represented as:
+Do not assume:
 
 ```text
-                Authorization Server
-                       │
-                       │
-                 Authorization
-                       │
-                       ▼
-                    Client
-                       │
-                       │ Authorization Code
-                       ▼
-                Token Endpoint
-                       │
-          ┌────────────┼────────────┐
-          │            │            │
-          ▼            ▼            ▼
-       Client        Code        PKCE
-     Validation    Validation   Validation
-          │            │            │
-          └────────────┼────────────┘
-                       │
-                 Redirect URI
-                   Validation
-                       │
-                       ▼
-                Token Issuance
-                       │
-                       ▼
-                     Client
+Refresh Token
+    =
+Permanent login
 ```
 
-A simpler version is:
+Do not assume:
 
 ```text
-Authorization Code
-        ↓
-Token Request
-        ↓
-Validate
-        ↓
-Issue Tokens
+Refresh Token
+    =
+Access Token
 ```
 
----
-
-# 30. Production Checklist
-
-Before a Client performs Authorization Code exchange, verify:
+Do not assume:
 
 ```text
-[ ] The Token Endpoint is obtained from trusted configuration.
+Possessing a Refresh Token
+    =
+Unlimited authorization
+```
 
-[ ] HTTPS is used.
+Do not assume:
 
-[ ] grant_type=authorization_code is used.
+```text
+Rotation
+    =
+Token can never be stolen
+```
 
-[ ] The correct Authorization Code is supplied.
+Do not assume:
 
-[ ] The request is sent using POST.
+```text
+Sender Constraint
+    =
+100% protection
+```
 
-[ ] application/x-www-form-urlencoded is used.
+Do not assume:
 
-[ ] Client authentication is performed when required.
+```text
+Refresh Token
+    =
+Safe to log
+```
 
-[ ] redirect_uri is included when required.
+Do not assume:
 
-[ ] redirect_uri matches the original authorization transaction.
-
-[ ] code_verifier is supplied when PKCE is used.
-
-[ ] The Client uses S256 for PKCE.
-
-[ ] Authorization Codes are never intentionally reused.
-
-[ ] Authorization Codes are not logged.
-
-[ ] code_verifier is not logged.
-
-[ ] Token responses are handled as sensitive data.
-
-[ ] Token Endpoint errors are handled explicitly.
+```text
+Browser
+    =
+Safe place for a static client secret
 ```
 
 ---
 
-# 31. Knowledge Check
+# 43. Practical Design Example
+
+Consider a public browser Client.
+
+A modern design could be:
+
+```text
+Browser Client
+      │
+      │ Authorization Code + PKCE
+      ▼
+Authorization Server
+      │
+      │ Access Token
+      │ Refresh Token
+      ▼
+Browser Client
+```
+
+For Refresh Token protection:
+
+```text
+Refresh Token Rotation
+          +
+limited lifetime
+          +
+scope/resource binding
+          +
+secure storage strategy
+```
+
+A deployment with DPoP may additionally use:
+
+```text
+Refresh Token
+      +
+DPoP key
+```
+
+The exact architecture should be selected based on the threat model and deployment design.
+
+---
+
+# 44. Production Checklist
+
+Before issuing or accepting Refresh Tokens, verify:
+
+```text
+[ ] Have we decided whether this Client should receive a Refresh Token?
+
+[ ] Is the Refresh Token bound to the correct Client?
+
+[ ] Is the Refresh Token limited to the authorized scope?
+
+[ ] Is the Refresh Token limited to the authorized resources?
+
+[ ] Is the Refresh Token transmitted only over TLS?
+
+[ ] Is the Refresh Token protected in storage?
+
+[ ] Is the Refresh Token excluded from application logs?
+
+[ ] Does the Client type require authentication?
+
+[ ] If the Client is public, is replay protection implemented?
+
+[ ] Is Refresh Token rotation implemented?
+
+[ ] Or is sender-constraining implemented?
+
+[ ] Would using both mechanisms materially improve this deployment?
+
+[ ] Is Refresh Token lifetime limited?
+
+[ ] Is inactivity expiration considered?
+
+[ ] Is revocation supported?
+
+[ ] Can replay be detected and contained?
+
+[ ] Does the Client correctly handle refresh failure?
+
+[ ] Does the architecture account for Client compromise?
+```
+
+---
+
+# 45. Knowledge Check
 
 ### Question 1
 
-What is the purpose of the Token Endpoint?
+What problem does a Refresh Token solve?
 
 ### Question 2
 
-Why is an Authorization Code not the same thing as an Access Token?
+Why is a Refresh Token sent to the Token Endpoint rather than the Resource Server?
 
 ### Question 3
 
-What does `grant_type=authorization_code` indicate?
+What is the difference between an Access Token and a Refresh Token?
 
 ### Question 4
 
-Why must the Authorization Server bind an Authorization Code to the Client?
+Why is a Refresh Token generally considered a high-value credential?
 
 ### Question 5
 
-When must `redirect_uri` be included in the Token Request?
+Why must a Refresh Token be bound to the Client to which it was issued?
 
 ### Question 6
 
-Why must the `redirect_uri` values match?
+Why is a static Client Secret not sufficient for a browser-based public Client?
 
 ### Question 7
 
-What is the purpose of Client authentication at the Token Endpoint?
+Why should a Refresh Token not be able to increase the privileges originally granted to the Client?
 
 ### Question 8
 
-What problem does PKCE solve during Token Exchange?
+What is Refresh Token Rotation?
 
 ### Question 9
 
-Why is `code_verifier` not sent in the original Authorization Request?
+How can rotation detect Refresh Token replay?
 
 ### Question 10
 
-Why is `S256` preferred?
+What is a Refresh Token family?
 
 ### Question 11
 
-What is an authorization-code injection attack?
+What is a sender-constrained Refresh Token?
 
 ### Question 12
 
-What is a PKCE downgrade attack?
+How can DPoP sender-constrain a Refresh Token?
 
 ### Question 13
 
-Why must an Authorization Code be single-use?
+Why does sender-constraining not provide absolute security?
 
 ### Question 14
 
-Why does the Token Endpoint require TLS?
+What happens if an attacker obtains both the Refresh Token and its associated private key?
 
 ### Question 15
 
-What is the difference between Token Endpoint validation and Resource Server authorization?
+Can Refresh Token Rotation and Sender Constraint be used together?
 
 ### Question 16
 
-What does `invalid_grant` generally represent during Authorization Code exchange?
+Why should Refresh Tokens have a limited lifetime or inactivity expiration?
 
 ### Question 17
 
-Why is Authorization Code exchange considered a back-channel operation?
+What is the difference between Refresh Token expiration and revocation?
 
 ### Question 18
 
-Explain the complete sequence:
+Why are Refresh Tokens particularly sensitive in browser-based applications?
 
-```text
-Authorization Code
-        ↓
-Token Request
-        ↓
-Validation
-        ↓
-Token Response
-```
+### Question 19
+
+What should happen when a Refresh Token has been revoked or replayed?
+
+### Question 20
+
+Explain the complete Refresh Token lifecycle from initial issuance through expiration or revocation.
 
 ---
 
-# 32. Lecture Summary
+# 46. Lecture Summary
 
-The Authorization Code Exchange is the stage where a Client redeems an Authorization Code at the Authorization Server's Token Endpoint.
+A Refresh Token is a credential used by a Client to obtain new Access Tokens from the Authorization Server.
 
-The core process is:
+The basic flow is:
 
 ```text
-Authorization Code
+Access Token expires
         ↓
-Token Request
+Client
         ↓
-Validation
-        ↓
-Token Response
-```
-
-The Token Request identifies:
-
-```text
-grant_type=authorization_code
-```
-
-and includes the Authorization Code.
-
-Depending on the Client and transaction, it can also include:
-
-```text
-redirect_uri
-client_id
-code_verifier
-Client authentication
-```
-
-The Authorization Server validates the request before issuing tokens.
-
-Important security controls include:
-
-```text
-Client Binding
-Redirect URI Binding
-PKCE
-Client Authentication
-Single-Use Authorization Codes
-Short Code Lifetime
-TLS
-Replay Protection
-```
-
-Modern OAuth security changes the baseline substantially:
-
-```text
-Public Client
-    ↓
-PKCE required
-
-Authorization Server
-    ↓
-PKCE support required
-
-PKCE
-    ↓
-S256 preferred
-
-Authorization Code
-    ↓
-Must be protected against interception,
-injection, and replay
-```
-
-RFC 9700 is therefore essential when interpreting the original Authorization Code Grant for modern deployments. :contentReference[oaicite:18]{index=18}
-
-The key distinction to retain is:
-
-```text
-Authorization Code
-    =
-Temporary authorization grant
-
-Token Request
-    =
-Request to redeem that grant
-
-Token Response
-    =
-Result of successful validation
-
-Access Token
-    =
-Credential used later with a Resource Server
-```
-
-Therefore:
-
-```text
-Authorization Endpoint
-        ↓
-Authorization Code
+Refresh Token Request
         ↓
 Token Endpoint
         ↓
-Token Response
+Validation
         ↓
-Resource Server
+New Access Token
 ```
 
----
+Refresh Tokens are not normally sent to Resource Servers.
 
-# 33. References
+They are bound to the Client and should remain within the scope and resource authorization granted by the Resource Owner.
+
+The major security concern is that Refresh Tokens can be long-lived and can repeatedly produce new Access Tokens.
+
+Therefore modern OAuth implementations must consider:
 
 ```text
-RFC 6749 — The OAuth 2.0 Authorization Framework
-https://www.rfc-editor.org/rfc/rfc6749.html
-
-Primary source for:
-- Authorization Code Grant
-- Token Endpoint
-- Access Token Request
-- Access Token Response
-- Client Authentication
-- Redirect URI matching
-- Authorization Code reuse
-- Token Endpoint errors
-- TLS requirements
-
-
-RFC 7636 — Proof Key for Code Exchange by OAuth Public Clients
-https://www.rfc-editor.org/rfc/rfc7636.html
-
-Primary source for:
-- code_verifier
-- code_challenge
-- code_challenge_method
-- PKCE token request verification
-
-
-RFC 9700 — Best Current Practice for OAuth 2.0 Security
-https://www.rfc-editor.org/rfc/rfc9700.html
-
-Current OAuth Security BCP.
-
-Relevant to this lecture:
-- PKCE requirements
-- Public Client requirements
-- S256
-- Authorization Code interception
-- Authorization Code injection
-- PKCE downgrade attacks
-- Redirect URI protection
-- Authorization Code replay protection
-- Modern Authorization Code security
-
-
-RFC 8414 — OAuth 2.0 Authorization Server Metadata
-https://www.rfc-editor.org/rfc/rfc8414.html
-
-Relevant to discovering:
-- token_endpoint
-- token endpoint authentication methods
-- supported grant types
-- supported PKCE challenge methods
-
-
-RFC 8693 — OAuth 2.0 Token Exchange
-https://www.rfc-editor.org/rfc/rfc8693.html
-
-Important terminology distinction only.
-
-This lecture does NOT cover RFC 8693.
-RFC 8693 defines a separate OAuth Token Exchange extension.
-This lecture uses "Token Exchange" to describe
-Authorization Code redemption at the Token Endpoint.
+Client Binding
+Scope / Resource Binding
+Secure Storage
+TLS
+Limited Lifetime
+Inactivity Expiration
+Revocation
+Replay Detection
 ```
+
+For public Clients, current OAuth Security BCP requires replay detection through either:
+
+```text
+Refresh Token Rotation
+```
+
+or:
+
+```text
+Sender-Constrained Refresh Tokens
+```
+
+Sender-constraining can use mechanisms such as DPoP.
+
+Rotation provides replay detection by invalidating the previous Refresh Token when a new one is issued.
+
+These mechanisms can also be combined for defense in depth.
+
+However:
+
+```text
+Token Security
+    ≠
+Absolute Security
+```
+
+If an attacker compromises the Client environment and obtains both the Refresh Token and associated key material, sender-constraining may no longer provide protection.
+
+The central mental model is:
+
+```text
+                 Refresh Token
+                       │
+                       ▼
+              Token Endpoint
+                       │
+              Security Validation
+                       │
+             ┌─────────┴─────────┐
+             │                   │
+          Rotation          Sender Constraint
+             │                   │
+             └─────────┬─────────┘
+                       ▼
+                 Replay Defense
+                       │
+                       ▼
+                New Access Token
+```
+
+The most important distinction is:
+
+```text
+Access Token
+    =
+Access protected resource
+
+Refresh Token
+    =
+Obtain new Access Tokens
+```
+
+A Refresh Token is therefore not a longer-lived Access Token.
+
+It is a separate credential with a different purpose and a different security lifecycle.
 
 ---
 
-# 34. Source Currency / Update Check
+# 47. References
 
-The relevant specifications were checked before drafting.
+## 47.1 RFC 6749 — The OAuth 2.0 Authorization Framework
+
+**Authority:** Internet Engineering Task Force (IETF)
+
+**Role:** Foundational OAuth 2.0 specification.
+
+Official source:
+
+https://www.rfc-editor.org/rfc/rfc6749.html
+
+Relevant sections:
+
+```text
+Section 1.5
+Refresh Token
+
+Section 3.2
+Token Endpoint
+
+Section 4.1
+Authorization Code Grant
+
+Section 6
+Refreshing an Access Token
+
+Section 10.4
+Refresh Tokens
+```
+
+RFC 6749 defines the Refresh Token, the `refresh_token` grant type, Client binding, scope restrictions, TLS requirements, and basic refresh behavior.
+
+---
+
+## 47.2 RFC 9700 — Best Current Practice for OAuth 2.0 Security
+
+**Authority:** Internet Engineering Task Force (IETF)
+
+**Status:** Best Current Practice (BCP 240).
+
+Official source:
+
+https://www.rfc-editor.org/rfc/rfc9700.html
+
+Relevant topic:
+
+```text
+Section 4.14
+Refresh Token Protection
+```
+
+This is the primary modern security source for this lecture.
+
+It introduces or clarifies requirements including:
+
+```text
+Risk-based Refresh Token issuance
+Scope and resource binding
+Refresh Token replay protection
+Sender-constrained Refresh Tokens
+Refresh Token rotation
+Public Client requirements
+Token leakage mitigation
+```
+
+For public Clients, it requires Authorization Servers to use either sender-constrained Refresh Tokens or Refresh Token rotation to detect replay.
+
+---
+
+## 47.3 RFC 9449 — OAuth 2.0 Demonstrating Proof of Possession
+
+**Authority:** Internet Engineering Task Force (IETF)
+
+Official source:
+
+https://www.rfc-editor.org/rfc/rfc9449.html
+
+Relevant topics:
+
+```text
+DPoP
+Proof of Possession
+Public / Private Key
+Sender-Constrained Access Tokens
+Sender-Constrained Refresh Tokens
+```
+
+This specification is relevant to the sender-constraining portion of this lecture.
+
+---
+
+## 47.4 RFC 7009 — OAuth 2.0 Token Revocation
+
+**Authority:** Internet Engineering Task Force (IETF)
+
+Official source:
+
+https://www.rfc-editor.org/rfc/rfc7009.html
+
+Relevant topics:
+
+```text
+Token Revocation Endpoint
+Refresh Token Revocation
+Token Type Hint
+Authorization Grant Revocation
+```
+
+This specification supplements OAuth 2.0 with an explicit mechanism for Client-initiated token revocation.
+
+---
+
+## 47.5 RFC 10017 — OAuth 2.0 for Browser-Based Applications
+
+**Authority:** Internet Engineering Task Force (IETF)
+
+**Status:** Best Current Practice.
+
+Official source:
+
+https://www.rfc-editor.org/rfc/rfc10017.html
+
+Relevant topics:
+
+```text
+Browser-based OAuth Clients
+Refresh Tokens in browser applications
+Refresh Token leakage
+Refresh Token rotation
+Sender-constrained Refresh Tokens
+Maximum Refresh Token lifetime
+Refresh Token inactivity expiration
+Secure browser application architecture
+```
+
+This is particularly important because this learning track will eventually implement browser-based OAuth Clients.
+
+RFC 10017 explicitly requires browser-based deployments issuing Refresh Tokens to follow the Refresh Token requirements in RFC 9700. It also adds requirements around Refresh Token lifetime and rotated-token lifetime. 
+
+---
+
+## 47.6 Source Currency / Update Check
+
+The applicable source set was checked before drafting.
 
 ```text
 RFC 6749
     │
-    └── Foundational OAuth 2.0 Authorization Code Grant
-            │
-            ▼
-RFC 7636
-    │
-    └── Adds PKCE
+    └── Foundational Refresh Token specification
             │
             ▼
 RFC 9700
     │
     └── Current OAuth Security BCP
             │
-            ├── Public Clients MUST use PKCE
-            ├── Authorization Servers MUST support PKCE
-            ├── S256 is the preferred method
-            ├── Authorization Code injection protection
-            ├── PKCE downgrade protection
-            ├── Redirect URI security
-            └── Replay protection
-            │
-            ▼
-RFC 8414
-    │
-    └── Authorization Server Metadata
+            ├── Refresh Token risk assessment
+            ├── Scope/resource binding
+            ├── Replay protection
+            ├── Rotation
+            └── Sender Constraint
+                    │
+          ┌─────────┴─────────┐
+          │                   │
+      RFC 9449             RFC 7009
+        DPoP                Revocation
+          │
+          └─────────┬─────────┘
+                    │
+                    ▼
+               RFC 10017
+                    │
+                    └── Browser-specific
+                        Refresh Token requirements
 ```
 
-The most important update affecting this lecture is that the historical Authorization Code Grant from RFC 6749 should not be implemented today without the security guidance from RFC 9700.
+The important update is that Refresh Tokens should not be taught using RFC 6749 alone.
 
-Therefore the modern model is:
+The modern security model is:
 
 ```text
 RFC 6749
     +
-RFC 7636
-    +
 RFC 9700
+    +
+RFC 9449
+    +
+RFC 7009
+    +
+RFC 10017
         ↓
-Modern Authorization Code Exchange
+Modern Refresh Token Security Model
 ```
 
-The separate RFC 8693 Token Exchange extension is explicitly outside this lecture's scope.
+In particular, RFC 9700 changes the practical baseline for public Clients by requiring replay detection through Refresh Token rotation or sender-constraining. RFC 10017 applies these requirements specifically to browser-based applications and adds explicit lifetime requirements. 
+
+---
+
+# 48. Final Mental Model
+
+```text
+Authorization
+      ↓
+Authorization Code
+      ↓
+Token Exchange
+      ↓
+┌───────────────────────────┐
+│ Access Token              │
+│                           │
+│ → Resource Server         │
+└───────────────────────────┘
+
+┌───────────────────────────┐
+│ Refresh Token             │
+│                           │
+│ → Token Endpoint          │
+│                           │
+│ → New Access Token        │
+└───────────────────────────┘
+              │
+              ▼
+     Security Lifecycle
+              │
+     ┌────────┼────────┐
+     │        │        │
+ Rotation  Sender   Expiration
+           Constraint
+     │        │        │
+     └────────┼────────┘
+              ▼
+          Revocation
+              ▼
+       Secure Lifecycle
+```
+
+The key principle is:
+
+```text
+A Refresh Token extends the ability
+to obtain authorization tokens.
+
+It does not itself represent permission
+to access the protected resource.
+```
