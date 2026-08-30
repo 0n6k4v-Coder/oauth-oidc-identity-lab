@@ -1,0 +1,15 @@
+services:
+  server:
+    build:
+      context: .
+    ports:
+      - "8000:8000"
+      - "9000:9000"
+
+  client:
+    build:
+      context: ./src/client
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: http://127.0.0.1:8000
