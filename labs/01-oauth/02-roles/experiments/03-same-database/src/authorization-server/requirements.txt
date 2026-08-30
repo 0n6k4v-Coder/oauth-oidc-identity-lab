@@ -1,4 +1,5 @@
-fastapi
-uvicorn
+fastapi[standard]
+sqlalchemy
+psycopg[binary]
 pytest
 httpx2

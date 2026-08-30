@@ -1,16 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from sqlalchemy import text
 
-
-class HealthResponse(BaseModel):
-    status: str
-
-
-class ProfileResponse(BaseModel):
-    id: str
-    display_name: str
-    resource: str
+from .database import engine
 
 
 app = FastAPI(
@@ -18,25 +10,50 @@ app = FastAPI(
     version="0.1.0",
 )
 
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5373"],
     allow_credentials=False,
     allow_methods=["GET"],
     allow_headers=["Content-Type"],
 )
 
+@app.get("/health")
+def health() -> dict[str, str]:
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
 
-@app.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
-    return HealthResponse(status="ok")
+    return {"status": "ok"}
 
 
-@app.get("/api/profile", response_model=ProfileResponse)
-async def get_profile() -> ProfileResponse:
-    return ProfileResponse(
-        id="demo-user",
-        display_name="Lab User",
-        resource="protected",
-    )
+@app.get("/api/profile")
+def get_profile() -> dict[str, str]:
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                """
+                SELECT id, display_name
+                FROM resource.profiles
+                WHERE id = :id
+                """
+            ),
+            {"id": "demo-user"},
+        ).mappings().one()
+
+    return {
+        "id": row["id"],
+        "display_name": row["display_name"],
+        "resource": "protected",
+    }
+
+@app.get("/database-check")
+def database_check() -> dict[str, str]:
+    with engine.connect() as connection:
+        database_name = connection.execute(
+            text("SELECT current_database()")
+        ).scalar_one()
+
+    return {
+        "service": "authorization-server",
+        "database": database_name,
+    }
