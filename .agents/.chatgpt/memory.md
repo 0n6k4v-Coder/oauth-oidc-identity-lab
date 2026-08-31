@@ -1,6 +1,6 @@
-#Memory
+# Memory
 
-##lecture Writing Framework
+## lecture Writing Framework
 
 1. You Must Deep Research For Last Update Standards Sources About Topic You Going to write a Lecture.
 2. You should look carefully from the sources that do it have new standards or do anything in current you read are outdate and you should write Lastest standards that invole lexture I lecture.
