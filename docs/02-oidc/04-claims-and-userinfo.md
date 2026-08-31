@@ -16,7 +16,7 @@ By the end of this lecture, you should be able to:
 
 A **Claim** is a piece of information asserted about a subject, represented as a name/value pair.
 
-In OpenID Connect, Claims communicate information about the End-User and the authentication event. They may be returned in the **ID Token** or through the **UserInfo Endpoint**.
+In OpenID Connect, Claims communicate information about the End-User and the authentication event. They may be returned in the **ID Token** or through the **UserInfo Endpoint**.
 
 ```text
 OpenID Connect
@@ -34,7 +34,7 @@ A Claim is therefore **information carried by the protocol**, not a separate tok
 
 ## 2. Standard OpenID Connect Claims
 
-OpenID Connect Core defines a standard set of Claims so that different Providers and Clients can use common names and semantics. These Claims may be returned in the ID Token or UserInfo Response. citeturn1search0
+OpenID Connect Core defines a standard set of Claims so that different Providers and Clients can use common names and semantics. These Claims may be returned in the ID Token or UserInfo Response.
 
 | Claim | Meaning | Typical category |
 |---|---|---|
