@@ -1,0 +1,23 @@
+name: oauth-lab-03-01-minimal-request
+
+services:
+  authorization-server:
+    build:
+      context: ./src/authorization-server
+      dockerfile: Dockerfile
+    ports:
+      - "8500:8500"
+
+  confidential-client:
+    build:
+      context: ./src/confidential-client
+      dockerfile: Dockerfile
+    ports:
+      - "5474:3000"
+
+  public-client:
+    build:
+      context: ./src/public-client
+      dockerfile: Dockerfile
+    ports:
+      - "5473:5173"
