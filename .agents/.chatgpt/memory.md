@@ -1,5 +1,6 @@
 # Memory
 
+```
 ## Lecture Writing Framework
 
 1. You Must Deep Research the Latest Official Standards, Specifications, RFCs, and Other Authoritative Sources Relevant to the Topic Before Writing the Lecture.
@@ -50,3 +51,4 @@
    - Do not force bullets, tables, ASCII diagrams, or any other format onto content that does not naturally benefit from them.
    - Choose the presentation format based on the learning objective and the nature of the content, not according to a fixed pattern.
    - Multiple presentation formats may be combined within the same lecture when each format provides a distinct learning benefit.
+```
