@@ -42,4 +42,13 @@
    - Consider what this lecture must establish for the next lectures.
    - Avoid unnecessary duplication with previous or future lectures.
    - Each lecture should build naturally toward complete understanding of the subject.
+
+8. The Lecture Must Use Presentation Formats That Match the Content.
+   - Use precise bullet points when they improve readability, scanning, comprehension, or memorization.
+   - Use tables when the content naturally involves comparison, classification, mapping, parameters, roles, properties, differences, or structured relationships.
+   - Use ASCII diagrams when a protocol flow, architecture, sequence, relationship, request/response interaction, or system boundary is easier to understand visually.
+   - Use normal prose when prose is the clearest way to explain a concept.
+   - Do not force bullets, tables, ASCII diagrams, or any other format onto content that does not naturally benefit from them.
+   - Choose the presentation format based on the learning objective and the nature of the content, not according to a fixed pattern.
+   - Multiple presentation formats may be combined within the same lecture when each format provides a distinct learning benefit.
 ```
