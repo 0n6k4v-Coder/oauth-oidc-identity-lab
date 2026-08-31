@@ -54,9 +54,9 @@ OpenID Connect Core defines a standard set of Claims so that different Providers
 | `zoneinfo` | End-User's time zone | Profile |
 | `updated_at` | Time the End-User information was last updated | Profile |
 
-The complete standard Claim definitions are specified by OpenID Connect Core; the table above intentionally highlights the Claims most useful for understanding the protocol flow rather than reproducing the entire specification. citeturn1search0
+The complete standard Claim definitions are specified by OpenID Connect Core; the table above intentionally highlights the Claims most useful for understanding the protocol flow rather than reproducing the entire specification.
 
-> **Important:** `email` is not defined as a unique identifier. Applications should use the OIDC subject identifier (`sub`) when correlating an End-User with the Issuer.
+> **Important:** `email` is not defined as a unique identifier. Applications should use the OIDC subject identifier (`sub`) when correlating an End-User with the Issuer.
 
 ---
 
