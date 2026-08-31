@@ -16,7 +16,7 @@ By the end of this lecture, you should be able to:
 
 A **Claim** is a piece of information asserted about a subject, represented as a name/value pair.
 
-In OpenID Connect, Claims communicate information about the End-User and the authentication event. They may be returned in the **ID Token** or through the **UserInfo Endpoint**. citeturn1search0turn0search14
+In OpenID Connect, Claims communicate information about the End-User and the authentication event. They may be returned in the **ID Token** or through the **UserInfo Endpoint**.
 
 ```text
 OpenID Connect
@@ -56,7 +56,7 @@ OpenID Connect Core defines a standard set of Claims so that different Providers
 
 The complete standard Claim definitions are specified by OpenID Connect Core; the table above intentionally highlights the Claims most useful for understanding the protocol flow rather than reproducing the entire specification. citeturn1search0
 
-> **Important:** `email` is not defined as a unique identifier. Applications should use the OIDC subject identifier (`sub`) when correlating an End-User with the Issuer. citeturn1search0
+> **Important:** `email` is not defined as a unique identifier. Applications should use the OIDC subject identifier (`sub`) when correlating an End-User with the Issuer.
 
 ---
 
@@ -76,7 +76,7 @@ Issuer B
 
 The identifier is scoped to the Issuer. A Client must therefore consider the combination of the **Issuer** and `sub` when identifying an End-User.
 
-This distinction matters because two different OpenID Providers may use the same textual identifier for different people, while the same Provider can use different identifier strategies depending on its subject identifier configuration. OpenID Connect also defines pairwise subject identifiers for privacy-preserving correlation. citeturn1search0
+This distinction matters because two different OpenID Providers may use the same textual identifier for different people, while the same Provider can use different identifier strategies depending on its subject identifier configuration. OpenID Connect also defines pairwise subject identifiers for privacy-preserving correlation.
 
 ---
 
@@ -92,7 +92,7 @@ OpenID Connect defines standard scope values that request groups of Claims.
 | `address` | `address` |
 | `phone` | `phone_number`, `phone_number_verified` |
 
-These scope values are defined by OpenID Connect Core. The `profile`, `email`, `address`, and `phone` Claims are treated as voluntary Claims: requesting a scope does not mean the Client is guaranteed to receive every corresponding Claim. citeturn1search0
+These scope values are defined by OpenID Connect Core. The `profile`, `email`, `address`, and `phone` Claims are treated as voluntary Claims: requesting a scope does not mean the Client is guaranteed to receive every corresponding Claim.
 
 For example:
 
@@ -142,7 +142,7 @@ The ID Token is therefore part of the **authentication result**.
 
 The UserInfo Endpoint is an OAuth 2.0 Protected Resource that returns Claims about the authenticated End-User. The Client calls it using an Access Token obtained through the OIDC authentication flow. citeturn1search0
 
-The UserInfo response is normally a JSON object containing Claim name/value pairs. Communication with the UserInfo Endpoint must use TLS. citeturn1search0
+The UserInfo response is normally a JSON object containing Claim name/value pairs. Communication with the UserInfo Endpoint must use TLS.
 
 ---
 
@@ -157,7 +157,7 @@ The UserInfo response is normally a JSON object containing Claim name/value pair
 | Typical purpose | Establish and verify the authentication result | Obtain user attributes |
 | Main protocol concern | Token validation and authentication claims | Protected-resource access and response validation |
 
-The distinction is important: **an Access Token is not an ID Token, and UserInfo is not simply another representation of the ID Token.** They serve different protocol roles. citeturn1search0
+The distinction is important: **an Access Token is not an ID Token, and UserInfo is not simply another representation of the ID Token.** They serve different protocol roles.
 
 ---
 
@@ -177,7 +177,7 @@ Client                         UserInfo Endpoint
   │
 ```
 
-The UserInfo Endpoint is a protected resource. The Access Token is therefore the credential used to authorize the request. OpenID Connect Core specifies support for the HTTP `GET` and `POST` methods and requires TLS for communication. citeturn1search0
+The UserInfo Endpoint is a protected resource. The Access Token is therefore the credential used to authorize the request. OpenID Connect Core specifies support for the HTTP `GET` and `POST` methods and requires TLS for communication.
 
 ---
 
@@ -206,7 +206,7 @@ UserInfo
 }
 ```
 
-The Client must not blindly treat arbitrary UserInfo data as belonging to the authenticated user. OIDC defines UserInfo Response validation rules, including validation of the `sub` value against the subject identifier obtained during the authentication flow. citeturn1search0
+The Client must not blindly treat arbitrary UserInfo data as belonging to the authenticated user. OIDC defines UserInfo Response validation rules, including validation of the `sub` value against the subject identifier obtained during the authentication flow.
 
 ---
 
@@ -238,7 +238,7 @@ Need a Claim?
      └── No  → Do not request it
 ```
 
-Requesting `profile`, `email`, `address`, or `phone` expands the information that the Client is asking the Provider to make available. The Provider still controls what information is actually returned. OpenID Connect's privacy model explicitly discusses personally identifiable information, data-access monitoring, and correlation. citeturn1view0
+Requesting `profile`, `email`, `address`, or `phone` expands the information that the Client is asking the Provider to make available. The Provider still controls what information is actually returned. OpenID Connect's privacy model explicitly discusses personally identifiable information, data-access monitoring, and correlation.
 
 ---
 
@@ -246,7 +246,7 @@ Requesting `profile`, `email`, `address`, or `phone` expands the information tha
 
 Do not assume that every claim you encounter in an OAuth ecosystem is an OpenID Connect Claim returned to the Client.
 
-For example, RFC 9068 defines a JWT Profile for OAuth 2.0 Access Tokens. Such a JWT may contain authorization-oriented information such as `scope`, `aud`, and `client_id`, but its purpose is to represent an OAuth access token for a protected resource. citeturn0search4
+For example, RFC 9068 defines a JWT Profile for OAuth 2.0 Access Tokens. Such a JWT may contain authorization-oriented information such as `scope`, `aud`, and `client_id`, but its purpose is to represent an OAuth access token for a protected resource.
 
 ```text
 OIDC ID Token
@@ -310,4 +310,4 @@ The next part of the learning path can build on this foundation by examining how
 3. IETF — **RFC 7519: JSON Web Token (JWT)**. The RFC defines JWT Claims and notes subsequent updates including RFC 8725. citeturn0search14
 4. IETF — **RFC 9068: JSON Web Token (JWT) Profile for OAuth 2.0 Access Tokens**. Used to distinguish OAuth access-token Claims from OIDC identity Claims. citeturn0search4
 
-> **Scope note:** This lecture focuses on the Core OpenID Connect Claims model and UserInfo mechanism. Advanced Claims syntax, Identity Assurance, and Verifiable Credentials are intentionally outside this lecture and should be treated as separate extensions/topics rather than mixed into the Core model. citeturn0search2turn0search7
+> **Scope note:** This lecture focuses on the Core OpenID Connect Claims model and UserInfo mechanism. Advanced Claims syntax, Identity Assurance, and Verifiable Credentials are intentionally outside this lecture and should be treated as separate extensions/topics rather than mixed into the Core model.
